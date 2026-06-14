@@ -48,6 +48,7 @@ func NewFromTarget(target config.Target) (Connector, error) {
 	case "redis":
 		return NewRedis(target), nil
 	default:
-		return nil, fmt.Errorf("unsupported database type: %s", target.Type)
+		return nil, fmt.Errorf("unsupported database type %q for target %q: valid types are mysql, postgres, redis",
+			target.Type, target.Name)
 	}
 }

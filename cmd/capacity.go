@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -20,25 +19,27 @@ var capacityCmd = &cobra.Command{
 		insp := inspector.NewCapacityInspector()
 
 		for _, target := range targets {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout)
+			if globalCtx.Err() != nil {
+				fmt.Printf("  ⚠ interrupted, stopping further checks\n")
+				break
+			}
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] connector error: %v", target.Name, err))
-				cancel()
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				log.Error(fmt.Sprintf("[%s] connection failed: %v", target.Name, err))
-				fmt.Printf("  ✗ %s: connection failed - %v\n", target.Name, err)
-				cancel()
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				log.Error(fmt.Sprintf("[%s] %v", target.Name, err))
+				fmt.Printf("  ✗ %s: %v\n", target.Name, err)
 				continue
 			}
 
-			result, err := insp.Run(ctx, conn, cfg)
+			// capacity 使用自己的 scan_timeout（在 inspector 内部管理），
+			// 但外层仍传入 globalCtx 以响应信号中断
+			result, err := insp.Run(globalCtx, conn, cfg)
 			conn.Close()
-			cancel()
 
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] capacity check error: %v", target.Name, err))
@@ -62,7 +63,11 @@ var capacityCmd = &cobra.Command{
 
 			if verbose {
 				if totalGB, ok := result.Details["total_size_gb"]; ok {
-					fmt.Printf("    Total size: %.2f GB\n", totalGB)
+					fmt.Printf("    Total size: %v GB\n", totalGB)
+				}
+				if _, ok := result.Details["timeout"]; ok {
+					fmt.Printf("    ⚠ Scan was terminated due to timeout (scan_timeout: %s)\n",
+						cfg.Checks.Capacity.ScanTimeout)
 				}
 			}
 		}

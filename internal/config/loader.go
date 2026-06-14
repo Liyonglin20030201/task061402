@@ -76,6 +76,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Checks.Index.MinTableRows == 0 {
 		cfg.Checks.Index.MinTableRows = 1000
 	}
+	if cfg.Checks.Capacity.ScanTimeout == 0 {
+		cfg.Checks.Capacity.ScanTimeout = 2 * time.Minute
+	}
 	if cfg.Checks.Backup.MaxAge == 0 {
 		cfg.Checks.Backup.MaxAge = 24 * time.Hour
 	}

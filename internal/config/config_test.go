@@ -228,6 +228,30 @@ func TestValidation(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "empty target type",
+			cfg: &Config{
+				Global: GlobalConfig{Timeout: 10 * time.Second, LogLevel: "info"},
+				Targets: []Target{
+					{Name: "db1", Type: "", Host: "localhost", Port: 3306},
+				},
+				Risk:   RiskConfig{Weights: map[string]int{"connection": 100}},
+				Report: ReportConfig{Format: "html"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "typo in target type",
+			cfg: &Config{
+				Global: GlobalConfig{Timeout: 10 * time.Second, LogLevel: "info"},
+				Targets: []Target{
+					{Name: "db1", Type: "mysq", Host: "localhost", Port: 3306},
+				},
+				Risk:   RiskConfig{Weights: map[string]int{"connection": 100}},
+				Report: ReportConfig{Format: "html"},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

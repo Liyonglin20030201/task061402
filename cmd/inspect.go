@@ -37,38 +37,52 @@ var inspectCmd = &cobra.Command{
 		var allResults []*inspector.Result
 
 		for _, target := range targets {
-			fmt.Printf("\n━━━ %s (%s) ━━━\n", target.Name, target.Type)
+			// 检查全局是否已被中断（Ctrl+C）
+			if globalCtx.Err() != nil {
+				fmt.Printf("\n  ⚠ interrupted, stopping further targets\n")
+				break
+			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout*3)
+			fmt.Printf("\n━━━ %s (%s) ━━━\n", target.Name, target.Type)
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] connector error: %v", target.Name, err))
 				fmt.Printf("  ✗ Failed to create connector: %v\n", err)
-				cancel()
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				log.Error(fmt.Sprintf("[%s] connection failed: %v", target.Name, err))
-				fmt.Printf("  ✗ Connection failed: %v\n", err)
-				cancel()
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				log.Error(fmt.Sprintf("[%s] %v", target.Name, err))
+				fmt.Printf("  ✗ %v\n", err)
 				continue
 			}
 
 			for _, insp := range inspectors {
-				select {
-				case <-ctx.Done():
-					log.Warn(fmt.Sprintf("[%s] inspection cancelled: timeout", target.Name))
-					fmt.Printf("  ⚠ Inspection timeout - partial results saved\n")
-					goto nextTarget
-				default:
+				// 每个检查前再次检查是否被中断
+				if globalCtx.Err() != nil {
+					log.Warn(fmt.Sprintf("[%s] inspection cancelled: interrupted", target.Name))
+					fmt.Printf("  ⚠ Interrupted - partial results saved\n")
+					break
 				}
 
-				result, err := insp.Run(ctx, conn, cfg)
+				// 为每个检查创建独立超时 context（继承全局信号取消）
+				checkCtx, checkCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+
+				result, err := insp.Run(checkCtx, conn, cfg)
+				checkCancel()
+
 				if err != nil {
 					log.Warn(fmt.Sprintf("[%s] %s error: %v", target.Name, insp.Name(), err))
 					continue
+				}
+
+				// 如果是 context 超时导致的，确保有日志提示
+				if checkCtx.Err() == context.DeadlineExceeded && result.Status != inspector.StatusWarning {
+					result.Status = inspector.StatusWarning
+					result.Summary = fmt.Sprintf("%s (timed out after %s)", result.Summary, cfg.Global.Timeout)
+					result.Details["timeout"] = true
+					log.Warn(fmt.Sprintf("[%s] %s timed out after %s", target.Name, insp.Name(), cfg.Global.Timeout))
 				}
 
 				allResults = append(allResults, result)
@@ -88,9 +102,7 @@ var inspectCmd = &cobra.Command{
 				})
 			}
 
-		nextTarget:
 			conn.Close()
-			cancel()
 		}
 
 		// Risk scoring

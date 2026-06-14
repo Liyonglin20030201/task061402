@@ -47,6 +47,7 @@ checks:
     enabled: true
     warn_threshold_gb: 50
     critical_threshold_gb: 100
+    scan_timeout: 2m          # 大库扫描超过此时限自动跳过
 
   index:
     enabled: true

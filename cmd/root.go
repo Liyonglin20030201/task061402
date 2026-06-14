@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -24,10 +28,12 @@ var (
 	logLevel   string
 	timeout    string
 
-	cfg    *config.Config
-	db     *store.Store
-	log    *logger.Logger
-	runID  string
+	cfg       *config.Config
+	db        *store.Store
+	log       *logger.Logger
+	runID     string
+	globalCtx context.Context
+	globalCancel context.CancelFunc
 )
 
 var rootCmd = &cobra.Command{
@@ -41,10 +47,32 @@ backup verification, permission scanning, risk scoring, and report generation.`,
 			return nil
 		}
 
+		// 捕获 OS 信号，确保 Ctrl+C 能中断卡死的连接
+		globalCtx, globalCancel = context.WithCancel(context.Background())
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			sig := <-sigCh
+			fmt.Fprintf(os.Stderr, "\nReceived signal %v, shutting down gracefully...\n", sig)
+			globalCancel()
+			// 二次信号强制退出
+			<-sigCh
+			os.Exit(130)
+		}()
+
 		var err error
 		cfg, err = config.Load(cfgFile)
 		if err != nil {
 			return fmt.Errorf("configuration error: %w", err)
+		}
+
+		// 应用 --timeout 覆盖
+		if timeout != "" {
+			d, err := time.ParseDuration(timeout)
+			if err != nil {
+				return fmt.Errorf("invalid --timeout value %q: %w", timeout, err)
+			}
+			cfg.Global.Timeout = d
 		}
 
 		if logLevel != "" {
@@ -63,6 +91,9 @@ backup verification, permission scanning, risk scoring, and report generation.`,
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if globalCancel != nil {
+			globalCancel()
+		}
 		if db != nil {
 			db.Close()
 		}
@@ -100,4 +131,43 @@ func resolveTargets() []config.Target {
 		os.Exit(1)
 	}
 	return cfg.Targets
+}
+
+// connectWithRetry 连接数据库，带超时和重试机制。超时或信号中断时立即返回错误而非卡死。
+func connectWithRetry(ctx context.Context, conn interface{ Connect(context.Context) error; Name() string; Close() error }, target config.Target) error {
+	var lastErr error
+	for attempt := 1; attempt <= cfg.Global.MaxRetries; attempt++ {
+		connCtx, connCancel := context.WithTimeout(ctx, cfg.Global.Timeout)
+
+		err := conn.Connect(connCtx)
+		connCancel()
+
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		if ctx.Err() != nil {
+			return fmt.Errorf("interrupted while connecting to %s: %w", target.Name, ctx.Err())
+		}
+
+		if attempt < cfg.Global.MaxRetries {
+			log.Warn(fmt.Sprintf("[%s] connection attempt %d/%d failed: %v, retrying in %s...",
+				target.Name, attempt, cfg.Global.MaxRetries, err, cfg.Global.RetryInterval))
+			fmt.Fprintf(os.Stderr, "  ⚠ %s: attempt %d/%d failed, retrying...\n",
+				target.Name, attempt, cfg.Global.MaxRetries)
+
+			select {
+			case <-time.After(cfg.Global.RetryInterval):
+			case <-ctx.Done():
+				return fmt.Errorf("interrupted while waiting to retry %s: %w", target.Name, ctx.Err())
+			}
+		}
+	}
+	return fmt.Errorf("connection to %s failed after %d attempts: %w", target.Name, cfg.Global.MaxRetries, lastErr)
+}
+
+// createCheckContext 为单个检查创建带超时的 context，同时继承全局取消信号。
+func createCheckContext(parent context.Context, checkTimeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, checkTimeout)
 }

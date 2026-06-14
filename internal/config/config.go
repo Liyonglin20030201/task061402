@@ -49,9 +49,10 @@ type SlowQueryConfig struct {
 }
 
 type CapacityConfig struct {
-	Enabled            bool    `yaml:"enabled"`
-	WarnThresholdGB    float64 `yaml:"warn_threshold_gb"`
-	CriticalThresholdGB float64 `yaml:"critical_threshold_gb"`
+	Enabled             bool          `yaml:"enabled"`
+	WarnThresholdGB     float64       `yaml:"warn_threshold_gb"`
+	CriticalThresholdGB float64       `yaml:"critical_threshold_gb"`
+	ScanTimeout         time.Duration `yaml:"scan_timeout"`
 }
 
 type IndexConfig struct {

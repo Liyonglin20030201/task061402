@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -26,25 +25,27 @@ var slowqueryCmd = &cobra.Command{
 		}
 
 		for _, target := range targets {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout)
+			if globalCtx.Err() != nil {
+				fmt.Printf("  ⚠ interrupted, stopping further checks\n")
+				break
+			}
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] connector error: %v", target.Name, err))
-				cancel()
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				log.Error(fmt.Sprintf("[%s] connection failed: %v", target.Name, err))
-				fmt.Printf("  ✗ %s: connection failed - %v\n", target.Name, err)
-				cancel()
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				log.Error(fmt.Sprintf("[%s] %v", target.Name, err))
+				fmt.Printf("  ✗ %s: %v\n", target.Name, err)
 				continue
 			}
 
-			result, err := insp.Run(ctx, conn, cfg)
+			checkCtx, checkCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+			result, err := insp.Run(checkCtx, conn, cfg)
+			checkCancel()
 			conn.Close()
-			cancel()
 
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] slow query check error: %v", target.Name, err))

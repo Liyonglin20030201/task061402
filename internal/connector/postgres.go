@@ -25,8 +25,17 @@ func (p *PostgresConnector) Connect(ctx context.Context) error {
 		sslMode = "disable"
 	}
 
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=10",
-		p.target.Host, p.target.Port, p.target.User, p.target.Password, p.target.Database, sslMode)
+	// 从 context deadline 派生 connect_timeout
+	connectTimeout := 10
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := int(time.Until(deadline).Seconds())
+		if remaining > 0 && remaining < connectTimeout {
+			connectTimeout = remaining
+		}
+	}
+
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
+		p.target.Host, p.target.Port, p.target.User, p.target.Password, p.target.Database, sslMode, connectTimeout)
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -39,6 +48,9 @@ func (p *PostgresConnector) Connect(ctx context.Context) error {
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("connection to PostgreSQL %s timed out", p.target.Name)
+		}
 		return fmt.Errorf("failed to ping PostgreSQL %s: %w", p.target.Name, err)
 	}
 

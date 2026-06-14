@@ -27,7 +27,16 @@ func (m *MySQLConnector) Connect(ctx context.Context) error {
 	cfg.Addr = fmt.Sprintf("%s:%d", m.target.Host, m.target.Port)
 	cfg.DBName = m.target.Database
 	cfg.ParseTime = true
-	cfg.Timeout = 10 * time.Second
+
+	// 从 context 的 deadline 派生连接超时，确保不会比 context 更长
+	dialTimeout := 10 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining < dialTimeout {
+			dialTimeout = remaining
+		}
+	}
+	cfg.Timeout = dialTimeout
 
 	if charset, ok := m.target.Params["charset"]; ok {
 		cfg.Params = map[string]string{"charset": charset}
@@ -50,6 +59,9 @@ func (m *MySQLConnector) Connect(ctx context.Context) error {
 
 	if err := db.PingContext(ctx); err != nil {
 		db.Close()
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("connection to MySQL %s timed out after %s", m.target.Name, dialTimeout)
+		}
 		return fmt.Errorf("failed to ping MySQL %s: %w", m.target.Name, err)
 	}
 

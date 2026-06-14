@@ -22,13 +22,17 @@ func (c *CapacityInspector) Run(ctx context.Context, conn connector.Connector, c
 		return result.Finish(StatusSkipped, "capacity check disabled"), nil
 	}
 
+	// 为大库扫描创建独立的超时 context，防止千万级表查询卡死
+	scanCtx, scanCancel := context.WithTimeout(ctx, cfg.Checks.Capacity.ScanTimeout)
+	defer scanCancel()
+
 	switch conn.Type() {
 	case "mysql":
-		return c.runMySQL(ctx, conn, cfg, result)
+		return c.runMySQL(scanCtx, conn, cfg, result)
 	case "postgres":
-		return c.runPostgres(ctx, conn, cfg, result)
+		return c.runPostgres(scanCtx, conn, cfg, result)
 	case "redis":
-		return c.runRedis(ctx, conn, cfg, result)
+		return c.runRedis(scanCtx, conn, cfg, result)
 	default:
 		return result.Finish(StatusSkipped, fmt.Sprintf("unsupported type: %s", conn.Type())), nil
 	}
@@ -49,6 +53,13 @@ func (c *CapacityInspector) runMySQL(ctx context.Context, conn connector.Connect
 
 	rows, err := sqlConn.Query(ctx, query)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.RiskScore = 60
+			result.Details["timeout"] = true
+			result.Details["scan_timeout"] = cfg.Checks.Capacity.ScanTimeout.String()
+			log := fmt.Sprintf("capacity scan timed out after %s (scan_timeout exceeded), skipping", cfg.Checks.Capacity.ScanTimeout)
+			return result.Finish(StatusWarning, log), nil
+		}
 		return result.Finish(StatusError, fmt.Sprintf("failed to query capacity: %v", err)), nil
 	}
 	defer rows.Close()
@@ -56,6 +67,17 @@ func (c *CapacityInspector) runMySQL(ctx context.Context, conn connector.Connect
 	var databases []map[string]interface{}
 	var totalGB float64
 	for rows.Next() {
+		// 在迭代过程中也检查上下文超时
+		if ctx.Err() != nil {
+			result.Details["partial"] = true
+			result.Details["timeout"] = true
+			result.Details["databases"] = databases
+			result.Details["total_size_gb"] = totalGB
+			result.RiskScore = 50
+			return result.Finish(StatusWarning,
+				fmt.Sprintf("capacity scan timed out after partial read (%.2f GB scanned so far), increase checks.capacity.scan_timeout", totalGB)), nil
+		}
+
 		var schema string
 		var sizeGB float64
 		var totalRows int64
@@ -90,6 +112,13 @@ func (c *CapacityInspector) runPostgres(ctx context.Context, conn connector.Conn
 
 	rows, err := sqlConn.Query(ctx, query)
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.RiskScore = 60
+			result.Details["timeout"] = true
+			result.Details["scan_timeout"] = cfg.Checks.Capacity.ScanTimeout.String()
+			return result.Finish(StatusWarning,
+				fmt.Sprintf("capacity scan timed out after %s, skipping", cfg.Checks.Capacity.ScanTimeout)), nil
+		}
 		return result.Finish(StatusError, fmt.Sprintf("failed to query capacity: %v", err)), nil
 	}
 	defer rows.Close()
@@ -97,6 +126,16 @@ func (c *CapacityInspector) runPostgres(ctx context.Context, conn connector.Conn
 	var databases []map[string]interface{}
 	var totalGB float64
 	for rows.Next() {
+		if ctx.Err() != nil {
+			result.Details["partial"] = true
+			result.Details["timeout"] = true
+			result.Details["databases"] = databases
+			result.Details["total_size_gb"] = totalGB
+			result.RiskScore = 50
+			return result.Finish(StatusWarning,
+				fmt.Sprintf("capacity scan timed out after partial read (%.2f GB scanned so far)", totalGB)), nil
+		}
+
 		var dbName string
 		var sizeGB float64
 		if err := rows.Scan(&dbName, &sizeGB); err != nil {
@@ -123,6 +162,11 @@ func (c *CapacityInspector) runRedis(ctx context.Context, conn connector.Connect
 
 	info, err := redisConn.Info(ctx, "memory")
 	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.RiskScore = 40
+			result.Details["timeout"] = true
+			return result.Finish(StatusWarning, "Redis info command timed out"), nil
+		}
 		return result.Finish(StatusError, fmt.Sprintf("failed to get Redis info: %v", err)), nil
 	}
 

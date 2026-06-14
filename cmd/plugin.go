@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -76,23 +75,25 @@ var pluginRunCmd = &cobra.Command{
 		executor := plugin.NewExecutor(cfg.Plugins.Dir)
 
 		for _, target := range targets {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout)
+			if globalCtx.Err() != nil {
+				fmt.Printf("  ⚠ interrupted\n")
+				break
+			}
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
-				cancel()
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				fmt.Printf("  ✗ %s: connection failed - %v\n", target.Name, err)
-				cancel()
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				fmt.Printf("  ✗ %s: %v\n", target.Name, err)
 				continue
 			}
 
-			result, err := executor.Run(ctx, *targetPlugin, conn, cfg)
+			checkCtx, checkCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+			result, err := executor.Run(checkCtx, *targetPlugin, conn, cfg)
+			checkCancel()
 			conn.Close()
-			cancel()
 
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] plugin %s error: %v", target.Name, pluginRunName, err))

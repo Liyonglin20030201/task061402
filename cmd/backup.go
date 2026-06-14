@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -20,23 +19,26 @@ var backupCmd = &cobra.Command{
 		insp := inspector.NewBackupInspector()
 
 		for _, target := range targets {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout)
+			if globalCtx.Err() != nil {
+				fmt.Printf("  ⚠ interrupted, stopping further checks\n")
+				break
+			}
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
-				cancel()
+				log.Error(fmt.Sprintf("[%s] connector error: %v", target.Name, err))
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
+			// backup 检查不强制要求连接成功
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
 				fmt.Printf("  ⚠ %s: running backup check without connection\n", target.Name)
 			}
 
-			result, err := insp.Run(ctx, conn, cfg)
-			if conn != nil {
-				conn.Close()
-			}
-			cancel()
+			checkCtx, checkCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+			result, err := insp.Run(checkCtx, conn, cfg)
+			checkCancel()
+			conn.Close()
 
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] backup check error: %v", target.Name, err))

@@ -16,9 +16,10 @@ func Validate(cfg *Config) []error {
 	targetNames := make(map[string]bool)
 
 	for i, t := range cfg.Targets {
-		prefix := fmt.Sprintf("targets[%d]", i)
+		prefix := fmt.Sprintf("targets[%d](%s)", i, t.Name)
 
 		if t.Name == "" {
+			prefix = fmt.Sprintf("targets[%d]", i)
 			errs = append(errs, fmt.Errorf("%s.name: must not be empty", prefix))
 		} else if targetNames[t.Name] {
 			errs = append(errs, fmt.Errorf("%s.name: duplicate target name %q", prefix, t.Name))
@@ -26,8 +27,10 @@ func Validate(cfg *Config) []error {
 			targetNames[t.Name] = true
 		}
 
-		if !validTypes[t.Type] {
-			errs = append(errs, fmt.Errorf("%s.type: must be one of mysql, postgres, redis; got %q", prefix, t.Type))
+		if t.Type == "" {
+			errs = append(errs, fmt.Errorf("%s.type: must not be empty, valid options are: mysql, postgres, redis", prefix))
+		} else if !validTypes[t.Type] {
+			errs = append(errs, fmt.Errorf("%s.type: invalid value %q, must be one of: mysql, postgres, redis", prefix, t.Type))
 		}
 
 		if t.Host == "" {

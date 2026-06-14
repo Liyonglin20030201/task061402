@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -22,18 +21,21 @@ var pingCmd = &cobra.Command{
 
 		var hasError bool
 		for _, target := range targets {
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout)
+			if globalCtx.Err() != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "  ⚠ interrupted, stopping further checks\n")
+				break
+			}
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] connector creation failed: %v", target.Name, err))
-				cancel()
+				fmt.Fprintf(cmd.ErrOrStderr(), "  ✗ %s (%s): FAILED - %v\n", target.Name, target.Type, err)
 				hasError = true
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				log.Error(fmt.Sprintf("[%s] connection failed: %v", target.Name, err))
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				log.Error(fmt.Sprintf("[%s] %v", target.Name, err))
 				fmt.Printf("  ✗ %s (%s): FAILED - %v\n", target.Name, target.Type, err)
 
 				db.SaveInspection(&store.Inspection{
@@ -48,14 +50,15 @@ var pingCmd = &cobra.Command{
 					FinishedAt: time.Now(),
 				})
 
-				cancel()
 				hasError = true
 				continue
 			}
 
-			result, _ := ping.Run(ctx, conn, cfg)
+			// 单次 ping 也绑定超时 context
+			pingCtx, pingCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+			result, _ := ping.Run(pingCtx, conn, cfg)
+			pingCancel()
 			conn.Close()
-			cancel()
 
 			db.SaveInspection(&store.Inspection{
 				RunID:      runID,

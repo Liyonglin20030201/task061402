@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -28,27 +27,36 @@ var riskCmd = &cobra.Command{
 		}
 
 		for _, target := range targets {
-			fmt.Printf("\n[%s] (%s) Running risk assessment...\n", target.Name, target.Type)
+			if globalCtx.Err() != nil {
+				fmt.Printf("\n  ⚠ interrupted, stopping further targets\n")
+				break
+			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), cfg.Global.Timeout*2)
+			fmt.Printf("\n[%s] (%s) Running risk assessment...\n", target.Name, target.Type)
 
 			conn, err := connector.NewFromTarget(target)
 			if err != nil {
 				log.Error(fmt.Sprintf("[%s] connector error: %v", target.Name, err))
-				cancel()
 				continue
 			}
 
-			if err := conn.Connect(ctx); err != nil {
-				log.Error(fmt.Sprintf("[%s] connection failed: %v", target.Name, err))
-				fmt.Printf("  ✗ connection failed: %v\n", err)
-				cancel()
+			if err := connectWithRetry(globalCtx, conn, target); err != nil {
+				log.Error(fmt.Sprintf("[%s] %v", target.Name, err))
+				fmt.Printf("  ✗ %v\n", err)
 				continue
 			}
 
 			var results []*inspector.Result
 			for _, insp := range inspectors {
-				result, err := insp.Run(ctx, conn, cfg)
+				if globalCtx.Err() != nil {
+					fmt.Printf("  ⚠ interrupted\n")
+					break
+				}
+
+				checkCtx, checkCancel := createCheckContext(globalCtx, cfg.Global.Timeout)
+				result, err := insp.Run(checkCtx, conn, cfg)
+				checkCancel()
+
 				if err != nil {
 					log.Warn(fmt.Sprintf("[%s] %s check error: %v", target.Name, insp.Name(), err))
 					continue
@@ -71,7 +79,6 @@ var riskCmd = &cobra.Command{
 			}
 
 			conn.Close()
-			cancel()
 
 			score, categoryScores := inspector.ComputeRiskScore(results, cfg.Risk.Weights)
 			fmt.Printf("\n  %s\n", inspector.RiskSummary(score))
