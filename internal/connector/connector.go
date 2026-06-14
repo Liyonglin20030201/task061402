@@ -16,6 +16,25 @@ type Connector interface {
 	Ping(ctx context.Context) error
 }
 
+type ReplicationStatus struct {
+	Role           string // "primary", "replica", "master", "slave"
+	IsReplicating  bool
+	IORunning      bool
+	SQLRunning     bool
+	LagSeconds     int
+	LagIsNull      bool   // true when lag cannot be determined (broken replication)
+	LastIOError    string
+	LastSQLError   string
+	MasterHost     string
+	MasterPort     string
+	ConnectedPeers int // replicas if primary, 0 if replica
+	Details        map[string]interface{}
+}
+
+type ReplicationConnector interface {
+	GetReplicationStatus(ctx context.Context) (*ReplicationStatus, error)
+}
+
 type SQLConnector interface {
 	Connector
 	DB() *sql.DB
