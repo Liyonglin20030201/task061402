@@ -22,22 +22,26 @@ func (r *RiskInspector) Run(ctx context.Context, conn connector.Connector, cfg *
 func ComputeRiskScore(results []*Result, weights map[string]int) (int, map[string]int) {
 	if len(weights) == 0 {
 		weights = map[string]int{
-			"connection": 20,
-			"slowquery":  20,
-			"capacity":   15,
-			"index":      15,
-			"backup":     15,
-			"permission": 15,
+			"connection":  15,
+			"slowquery":   15,
+			"capacity":    12,
+			"index":       12,
+			"backup":      12,
+			"permission":  12,
+			"replication": 12,
+			"schema":      10,
 		}
 	}
 
 	checkTypeMap := map[string]string{
-		"ping":       "connection",
-		"slowquery":  "slowquery",
-		"capacity":   "capacity",
-		"index":      "index",
-		"backup":     "backup",
-		"permission": "permission",
+		"ping":        "connection",
+		"slowquery":   "slowquery",
+		"capacity":    "capacity",
+		"index":       "index",
+		"backup":      "backup",
+		"permission":  "permission",
+		"replication": "replication",
+		"schema":      "schema",
 	}
 
 	scores := make(map[string]int)

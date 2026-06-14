@@ -47,7 +47,7 @@ checks:
     enabled: true
     warn_threshold_gb: 50
     critical_threshold_gb: 100
-    scan_timeout: 2m          # 大库扫描超过此时限自动跳过
+    scan_timeout: 2m
 
   index:
     enabled: true
@@ -66,14 +66,27 @@ checks:
       - "GRANT ALL"
       - "SUPER"
 
+  replication:
+    enabled: true
+    max_lag_seconds: 30
+    critical_lag_seconds: 120
+
+  schema:
+    enabled: true
+    exclude_tables:
+      - "tmp_*"
+      - "migration_*"
+
 risk:
   weights:
-    connection: 20
-    slowquery: 20
-    capacity: 15
-    index: 15
-    backup: 15
-    permission: 15
+    connection: 15
+    slowquery: 15
+    capacity: 12
+    index: 12
+    backup: 12
+    permission: 12
+    replication: 12
+    schema: 10
 
 plugins:
   dir: ./plugins
@@ -82,3 +95,32 @@ plugins:
 report:
   format: html
   include_details: true
+
+notifications:
+  enabled: false
+  thresholds:
+    global_risk_score: 60
+    category:
+      replication: 50
+      backup: 70
+      capacity: 80
+  channels:
+    - type: webhook
+      url: "https://hooks.example.com/alert"
+      timeout: 10s
+      headers:
+        Authorization: "Bearer ${WEBHOOK_TOKEN}"
+    - type: slack
+      url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+      slack_channel: "#db-alerts"
+      timeout: 10s
+    - type: email
+      smtp_host: "smtp.example.com"
+      smtp_port: 587
+      from: "dbinspect@example.com"
+      to:
+        - "ops@example.com"
+      username: "${SMTP_USER}"
+      password: "${SMTP_PASS}"
+    - type: logfile
+      path: "./alerts.log"

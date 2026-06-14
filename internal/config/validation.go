@@ -76,5 +76,33 @@ func Validate(cfg *Config) []error {
 		errs = append(errs, fmt.Errorf("report.format: must be one of html, json, csv; got %q", cfg.Report.Format))
 	}
 
+	if cfg.Notifications.Enabled {
+		validChannelTypes := map[string]bool{"webhook": true, "slack": true, "email": true, "logfile": true}
+		for i, ch := range cfg.Notifications.Channels {
+			prefix := fmt.Sprintf("notifications.channels[%d]", i)
+			if !validChannelTypes[ch.Type] {
+				errs = append(errs, fmt.Errorf("%s.type: must be one of webhook, slack, email, logfile; got %q", prefix, ch.Type))
+				continue
+			}
+			switch ch.Type {
+			case "webhook", "slack":
+				if ch.URL == "" {
+					errs = append(errs, fmt.Errorf("%s.url: must not be empty for %s channel", prefix, ch.Type))
+				}
+			case "email":
+				if ch.SMTPHost == "" {
+					errs = append(errs, fmt.Errorf("%s.smtp_host: must not be empty for email channel", prefix))
+				}
+				if len(ch.To) == 0 {
+					errs = append(errs, fmt.Errorf("%s.to: must have at least one recipient for email channel", prefix))
+				}
+			case "logfile":
+				if ch.Path == "" {
+					errs = append(errs, fmt.Errorf("%s.path: must not be empty for logfile channel", prefix))
+				}
+			}
+		}
+	}
+
 	return errs
 }

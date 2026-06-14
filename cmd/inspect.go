@@ -10,6 +10,7 @@ import (
 
 	"github.com/Liyonglin20030201/task061402/internal/connector"
 	"github.com/Liyonglin20030201/task061402/internal/inspector"
+	"github.com/Liyonglin20030201/task061402/internal/notifier"
 	"github.com/Liyonglin20030201/task061402/internal/report"
 	"github.com/Liyonglin20030201/task061402/internal/store"
 )
@@ -33,6 +34,8 @@ var inspectCmd = &cobra.Command{
 			inspector.NewIndexInspector(),
 			inspector.NewBackupInspector(),
 			inspector.NewPermissionInspector(),
+			inspector.NewReplicationInspector(),
+			inspector.NewSchemaChangeInspector(db),
 		}
 
 		var allResults []*inspector.Result
@@ -203,11 +206,29 @@ var inspectCmd = &cobra.Command{
 		}
 
 		// Risk scoring
-		score, _ := inspector.ComputeRiskScore(allResults, cfg.Risk.Weights)
+		score, categoryScores := inspector.ComputeRiskScore(allResults, cfg.Risk.Weights)
 		fmt.Printf("\n━━━ Summary ━━━\n")
 		fmt.Printf("  %s\n", inspector.RiskSummary(score))
 		fmt.Printf("  Checks run: %d\n", len(allResults))
 		fmt.Printf("  Run ID: %s\n", runID)
+
+		// Send notifications if configured
+		if cfg.Notifications.Enabled && len(cfg.Notifications.Channels) > 0 {
+			channels := buildNotificationChannels(cfg)
+			if len(channels) > 0 {
+				thresholds := notifier.ThresholdConfig{
+					GlobalRiskScore:    cfg.Notifications.Thresholds.GlobalRiskScore,
+					CategoryThresholds: cfg.Notifications.Thresholds.Category,
+				}
+				dispatcher := notifier.NewDispatcher(channels, thresholds)
+				if errs := dispatcher.Evaluate(globalCtx, score, categoryScores, runID); len(errs) > 0 {
+					for _, e := range errs {
+						log.Warn(fmt.Sprintf("notification error: %v", e))
+					}
+					fmt.Printf("  ⚠ Some notifications failed (%d errors)\n", len(errs))
+				}
+			}
+		}
 
 		// Generate report if requested
 		if inspectReport {
@@ -252,4 +273,29 @@ func init() {
 	inspectCmd.Flags().BoolVar(&inspectReport, "report", false, "generate report after inspection")
 	inspectCmd.Flags().StringVar(&inspectFormat, "format", "", "report format: html|json|csv")
 	rootCmd.AddCommand(inspectCmd)
+}
+
+func buildNotificationChannels(cfg *config.Config) []notifier.Channel {
+	var channels []notifier.Channel
+	for _, ch := range cfg.Notifications.Channels {
+		switch ch.Type {
+		case "webhook":
+			if ch.URL != "" {
+				channels = append(channels, notifier.NewWebhookChannel(ch.URL, ch.Timeout, ch.Headers))
+			}
+		case "slack":
+			if ch.URL != "" {
+				channels = append(channels, notifier.NewSlackChannel(ch.URL, ch.SlackChannel, ch.Timeout))
+			}
+		case "email":
+			if ch.SMTPHost != "" && len(ch.To) > 0 {
+				channels = append(channels, notifier.NewEmailChannel(ch.SMTPHost, ch.SMTPPort, ch.From, ch.To, ch.Username, ch.Password))
+			}
+		case "logfile":
+			if ch.Path != "" {
+				channels = append(channels, notifier.NewLogfileChannel(ch.Path))
+			}
+		}
+	}
+	return channels
 }

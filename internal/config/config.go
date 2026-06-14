@@ -3,13 +3,40 @@ package config
 import "time"
 
 type Config struct {
-	Version string        `yaml:"version"`
-	Global  GlobalConfig  `yaml:"global"`
-	Targets []Target      `yaml:"targets"`
-	Checks  ChecksConfig  `yaml:"checks"`
-	Risk    RiskConfig    `yaml:"risk"`
-	Plugins PluginsConfig `yaml:"plugins"`
-	Report  ReportConfig  `yaml:"report"`
+	Version       string             `yaml:"version"`
+	Global        GlobalConfig       `yaml:"global"`
+	Targets       []Target           `yaml:"targets"`
+	Checks        ChecksConfig       `yaml:"checks"`
+	Risk          RiskConfig         `yaml:"risk"`
+	Plugins       PluginsConfig      `yaml:"plugins"`
+	Report        ReportConfig       `yaml:"report"`
+	Notifications NotificationConfig `yaml:"notifications"`
+}
+
+type NotificationConfig struct {
+	Enabled    bool                   `yaml:"enabled"`
+	Thresholds NotificationThresholds `yaml:"thresholds"`
+	Channels   []ChannelConfig        `yaml:"channels"`
+}
+
+type NotificationThresholds struct {
+	GlobalRiskScore int            `yaml:"global_risk_score"`
+	Category        map[string]int `yaml:"category"`
+}
+
+type ChannelConfig struct {
+	Type         string            `yaml:"type"`
+	URL          string            `yaml:"url"`
+	Timeout      time.Duration     `yaml:"timeout"`
+	Headers      map[string]string `yaml:"headers"`
+	SlackChannel string            `yaml:"slack_channel"`
+	SMTPHost     string            `yaml:"smtp_host"`
+	SMTPPort     int               `yaml:"smtp_port"`
+	From         string            `yaml:"from"`
+	To           []string          `yaml:"to"`
+	Username     string            `yaml:"username"`
+	Password     string            `yaml:"password"`
+	Path         string            `yaml:"path"`
 }
 
 type GlobalConfig struct {
@@ -35,11 +62,24 @@ type Target struct {
 }
 
 type ChecksConfig struct {
-	SlowQuery  SlowQueryConfig  `yaml:"slowquery"`
-	Capacity   CapacityConfig   `yaml:"capacity"`
-	Index      IndexConfig      `yaml:"index"`
-	Backup     BackupConfig     `yaml:"backup"`
-	Permission PermissionConfig `yaml:"permission"`
+	SlowQuery   SlowQueryConfig   `yaml:"slowquery"`
+	Capacity    CapacityConfig    `yaml:"capacity"`
+	Index       IndexConfig       `yaml:"index"`
+	Backup      BackupConfig      `yaml:"backup"`
+	Permission  PermissionConfig  `yaml:"permission"`
+	Replication ReplicationConfig `yaml:"replication"`
+	Schema      SchemaConfig      `yaml:"schema"`
+}
+
+type ReplicationConfig struct {
+	Enabled            bool `yaml:"enabled"`
+	MaxLagSeconds      int  `yaml:"max_lag_seconds"`
+	CriticalLagSeconds int  `yaml:"critical_lag_seconds"`
+}
+
+type SchemaConfig struct {
+	Enabled       bool     `yaml:"enabled"`
+	ExcludeTables []string `yaml:"exclude_tables"`
 }
 
 type SlowQueryConfig struct {

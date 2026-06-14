@@ -76,10 +76,23 @@ func (s *Store) migrate() error {
 			file_size INTEGER,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS schema_snapshots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_name TEXT NOT NULL,
+			target_type TEXT NOT NULL,
+			database_name TEXT NOT NULL,
+			snapshot_data TEXT NOT NULL,
+			run_id TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_inspections_run_id ON inspections(run_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_inspections_target ON inspections(target_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspections_target_time ON inspections(target_name, check_type, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_inspections_time_range ON inspections(created_at, target_name)`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_run_id ON operation_logs(run_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_logs_level ON operation_logs(level)`,
+		`CREATE INDEX IF NOT EXISTS idx_schema_snapshots_target ON schema_snapshots(target_name, database_name)`,
+		`CREATE INDEX IF NOT EXISTS idx_schema_snapshots_created ON schema_snapshots(target_name, created_at DESC)`,
 	}
 
 	for _, m := range migrations {

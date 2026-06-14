@@ -24,6 +24,8 @@ var riskCmd = &cobra.Command{
 			inspector.NewIndexInspector(),
 			inspector.NewBackupInspector(),
 			inspector.NewPermissionInspector(),
+			inspector.NewReplicationInspector(),
+			inspector.NewSchemaChangeInspector(db),
 		}
 
 		for _, target := range targets {

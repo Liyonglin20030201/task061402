@@ -85,4 +85,13 @@ func applyDefaults(cfg *Config) {
 	if cfg.Report.Format == "" {
 		cfg.Report.Format = "html"
 	}
+	if cfg.Checks.Replication.MaxLagSeconds == 0 {
+		cfg.Checks.Replication.MaxLagSeconds = 30
+	}
+	if cfg.Checks.Replication.CriticalLagSeconds == 0 {
+		cfg.Checks.Replication.CriticalLagSeconds = 120
+	}
+	if cfg.Notifications.Thresholds.GlobalRiskScore == 0 {
+		cfg.Notifications.Thresholds.GlobalRiskScore = 60
+	}
 }
