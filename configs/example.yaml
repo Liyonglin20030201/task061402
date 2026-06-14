@@ -1,0 +1,83 @@
+# dbinspect configuration example
+version: "1"
+
+global:
+  timeout: 30s
+  max_retries: 3
+  retry_interval: 5s
+  log_level: info
+  data_dir: ./data
+  report_dir: ./reports
+
+targets:
+  - name: prod-mysql
+    type: mysql
+    host: 127.0.0.1
+    port: 3306
+    user: inspector
+    password: "${MYSQL_PASSWORD}"
+    database: myapp
+    params:
+      charset: utf8mb4
+      timeout: 10s
+
+  - name: prod-postgres
+    type: postgres
+    host: 127.0.0.1
+    port: 5432
+    user: inspector
+    password: "${PG_PASSWORD}"
+    database: myapp
+    ssl_mode: disable
+
+  - name: prod-redis
+    type: redis
+    host: 127.0.0.1
+    port: 6379
+    password: "${REDIS_PASSWORD}"
+    db: 0
+
+checks:
+  slowquery:
+    enabled: true
+    threshold: 1s
+    top_n: 20
+
+  capacity:
+    enabled: true
+    warn_threshold_gb: 50
+    critical_threshold_gb: 100
+
+  index:
+    enabled: true
+    min_table_rows: 1000
+
+  backup:
+    enabled: true
+    paths:
+      - /backups/mysql/
+      - /backups/postgres/
+    max_age: 24h
+
+  permission:
+    enabled: true
+    deny_patterns:
+      - "GRANT ALL"
+      - "SUPER"
+
+risk:
+  weights:
+    connection: 20
+    slowquery: 20
+    capacity: 15
+    index: 15
+    backup: 15
+    permission: 15
+
+plugins:
+  dir: ./plugins
+  enabled: []
+
+report:
+  format: html
+  include_details: true

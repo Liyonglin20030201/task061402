@@ -1,0 +1,67 @@
+version: "1"
+
+global:
+  timeout: 5s
+  max_retries: 1
+  retry_interval: 1s
+  log_level: debug
+  data_dir: ./testdata/data
+  report_dir: ./testdata/reports
+
+targets:
+  - name: test-mysql
+    type: mysql
+    host: 127.0.0.1
+    port: 3306
+    user: root
+    password: testpass
+    database: testdb
+
+  - name: test-redis
+    type: redis
+    host: 127.0.0.1
+    port: 6379
+    password: ""
+    db: 0
+
+checks:
+  slowquery:
+    enabled: true
+    threshold: 500ms
+    top_n: 10
+
+  capacity:
+    enabled: true
+    warn_threshold_gb: 10
+    critical_threshold_gb: 50
+
+  index:
+    enabled: true
+    min_table_rows: 100
+
+  backup:
+    enabled: false
+    paths: []
+    max_age: 24h
+
+  permission:
+    enabled: true
+    deny_patterns:
+      - "SUPER"
+
+risk:
+  weights:
+    connection: 20
+    slowquery: 20
+    capacity: 15
+    index: 15
+    backup: 15
+    permission: 15
+
+plugins:
+  dir: ./testdata/plugins
+  enabled: []
+
+report:
+  format: json
+  include_details: true
