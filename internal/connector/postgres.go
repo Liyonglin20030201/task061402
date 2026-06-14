@@ -60,6 +60,8 @@ func (p *PostgresConnector) Connect(ctx context.Context) error {
 
 func (p *PostgresConnector) Close() error {
 	if p.db != nil {
+		p.db.SetMaxIdleConns(0)
+		p.db.SetMaxOpenConns(0)
 		return p.db.Close()
 	}
 	return nil

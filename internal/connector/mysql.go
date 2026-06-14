@@ -71,6 +71,9 @@ func (m *MySQLConnector) Connect(ctx context.Context) error {
 
 func (m *MySQLConnector) Close() error {
 	if m.db != nil {
+		// 强制清除所有空闲连接，确保连接池完全释放
+		m.db.SetMaxIdleConns(0)
+		m.db.SetMaxOpenConns(0)
 		return m.db.Close()
 	}
 	return nil
